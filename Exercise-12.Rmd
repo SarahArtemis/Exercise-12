@@ -1,0 +1,164 @@
+---
+title: "Exercise-12"
+author: "Sarah"
+date: "2024-04-10"
+output: html_document
+---
+Load Libraries
+```{r, eval=TRUE, echo=TRUE, warning=FALSE}
+library(tidyverse)
+library(skimr)
+library(MASS)
+library(MuMIn)
+```
+Load in data
+```{R}
+#Ernest 2003. Life history characteristics of placental mammals
+f<-"https://raw.githubusercontent.com/difiore/ada-2024-datasets/main/Mammal_lifehistories_v2.txt"
+d<-read_tsv(f, col_names = TRUE)
+head(d)
+
+skim(d)
+
+#All variables are numeric except for taxonomic info.
+```
+1. Replace -999 with NA and reskim
+```{R}
+#Replace 999 with NA
+d[d == -999.00] <- NA
+
+#Reskim
+skim(d)
+```
+2. Drop litter size and refs
+```{r}
+d<- subset(d, select = -c(`litter size`, `refs`))
+head(d)
+```
+3. Log transform all numeric variables
+```{R}
+d<-d%>%mutate(logMass=log(`mass(g)`),
+              logGest=log(`gestation(mo)`),
+              lognb=log(`newborn(g)`),
+              logwean=log(`weaning(mo)`),
+              logwm=log(`wean mass(g)`),
+              logAFR=log(`AFR(mo)`),
+              logml=log(`max. life(mo)`),
+              logly=log(`litters/year`))
+head(d)
+```
+4. Regress log transformed age and mass variables on overall mass. Add residuals to dataframe.
+```{R}
+#Regression
+m1<-lm(data=d, logGest~logMass, na.action = na.exclude)
+m2<-lm(data=d, logwean~logMass, na.action = na.exclude)
+m3<-lm(data=d, logAFR~logMass, na.action = na.exclude)
+m4<-lm(data=d, logml~logMass, na.action = na.exclude)
+m5<-lm(data=d, lognb~logMass, na.action = na.exclude)
+m6<-lm(data=d, logwm~logMass, na.action = na.exclude)
+
+#Add residuals to dataframe
+d$relGest<-residuals(m1)
+d$relWean<-residuals(m2)
+d$relAFR<-residuals(m3)
+d$relLife<-residuals(m4)
+d$relNM<-residuals(m5)
+d$relWM<-residuals(m6)
+```
+5. Make plots with residuals. 
+```{R}
+#Max lifespan in relation to order
+a<-ggplot(d, aes(y=relLife, x=order))+
+  geom_boxplot()+geom_jitter(width=0.2)+
+  theme(axis.text.x = element_text(angle = 45)) 
+a
+
+#Newborn mass in relation to Order
+b<-ggplot(d, aes(y=relNM, x=order))+
+  geom_boxplot()+geom_jitter(width=0.2)+
+  theme(axis.text.x = element_text(angle = 45)) 
+b
+
+#Weaning mass in relation to Order
+c<-ggplot(d, aes(y=relWM, x=order))+
+  geom_boxplot()+geom_jitter(width=0.2)+
+  theme(axis.text.x = element_text(angle = 45)) 
+c
+
+```
+
+Primates have the highest residual lifespan. Macroscelididae (and a couple rodent species) have the highest residual newborn mass. Perissodactyla has the highest residual weaning mass. 
+
+6a. Model selection for two response variables
+```{R}
+#Remove NAs
+d<-d%>%drop_na(logml, logAFR, logGest, lognb, logwean, logwm, logly, logMass)
+
+
+#Model selection for log(max.life)
+ml_null<-lm(data=d, logml~1)
+
+#Use MASS package
+s<-stepAIC(ml_null, scope=.~.+logGest+lognb+logwean+logwm+logly+logMass, direction = "both", trace = TRUE)
+#add everything except lognb and logwm to achieve smallest (most negative) AIC. 2 other models have delta AICs<4. 
+
+ml<-lm(data=d, logml~logGest+logly+logMass+logwean)
+summary(ml)
+
+
+#Model selection for log(AFR)
+mAFR_null<-lm(data=d, logAFR~1)
+
+#Use MASS package
+t<-stepAIC(mAFR_null, scope=.~.+logGest+lognb+logwean+logwm+logly+logMass, direction = "both", trace = TRUE)
+#add everything except lognb and logwm to achieve smallest (most negative) AIC. 4 other models have delta AICs<4. 
+
+mAFR<-lm(data=d, logAFR ~ logGest+logly+logMass+logwean)
+summary(mAFR)
+
+
+#Both models include logly, logGest, logwean, and logMass as predictor variables. 
+```
+6b. Calculate and plot the model-averaged coefficients and their CIs across this set of top models.
+```{R}
+#Log(max.Life)
+
+#full model
+ml_full<-lm(data=d, logml~logGest+lognb+logwean+logwm+logly+logMass, na.action = na.fail)
+
+ml.set <- dredge(ml_full, beta = "none", m.lim = c(0, 6))
+
+#Avg coeffs across models
+(m.avg.l <- summary(model.avg(ml.set, subset = delta < 4, fit = TRUE)))
+
+confint(m.avg.l)
+
+#Plot
+plot(m.avg.l, full = TRUE, intercept = FALSE)
+
+
+#Log(AFR)
+
+#full model
+mAFR_full<-lm(data=d, logml~logGest+lognb+logwean+logwm+logly+logMass, na.action = na.fail)
+
+mAFR.set <- dredge(mAFR_full, beta = "none", m.lim = c(0, 6))
+
+#Avg coeffs across models
+(m.avg.AFR <- summary(model.avg(mAFR.set, subset = delta < 4, fit = TRUE)))
+
+confint(m.avg.AFR)
+
+#Plot
+plot(m.avg.AFR, full = TRUE, intercept = FALSE)
+
+```
+
+logly, logGest, logwean, and logMass are best predictors for log(Max.Life) and Log(AFR). 
+
+
+
+
+
+
+
